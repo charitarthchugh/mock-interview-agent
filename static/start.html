@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Start a mock interview</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  body { display:flex; }
+  form { margin:auto; padding:32px 20px; max-width:700px; width:100%;
+         display:flex; flex-direction:column; gap:12px; }
+  h1 { margin:0; font-size:24px; }
+  .sub { margin:0 0 10px; color:var(--dim); font-size:14px; }
+  label { color:var(--dim); font-size:13px; }
+  textarea, input {
+    font:inherit; padding:11px 13px; border-radius:9px;
+    border:1px solid var(--line); background:var(--panel); color:var(--fg);
+    width:100%; resize:vertical;
+  }
+  textarea { min-height:190px;
+             font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .row .spacer { flex:1; }
+  .filebtn { color:var(--accent); font-size:13px; cursor:pointer;
+             border:1px solid var(--line); padding:5px 10px; border-radius:8px; }
+  #drop { border:1px dashed var(--line); border-radius:9px; padding:14px;
+          text-align:center; color:var(--dim); font-size:13px; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #drop.busy { border-style:solid; color:var(--accent); }
+  #drop.bad { border-color:var(--bad); color:var(--bad); }
+  .keys { color:var(--dim); font-size:13px; text-align:center; margin:2px 0 0; }
+</style>
+
+<form id="setup" autocomplete="off">
+  <h1>Mock technical interview</h1>
+  <p class="sub">You'll get the problem and your interviewer on the left, and a
+    scratchpad, a Python editor and generated tests on the right. Speak your
+    way through it.</p>
+
+  <div class="row">
+    <label for="ptext">Problem statement</label>
+    <span class="spacer"></span>
+    <button type="button" id="tidy" class="filebtn">🧹 Clean up text</button>
+    <label for="shot" class="filebtn" id="shotlabel">📷 Read from screenshot</label>
+    <input id="shot" type="file" accept="image/*" hidden>
+  </div>
+  <div id="drop">
+    Paste a screenshot with <kbd>Ctrl</kbd>+<kbd>V</kbd>, drop an image here,
+    or type the problem below.
+  </div>
+  <textarea id="ptext" name="problem" placeholder="322. Coin Change
+
+You are given an integer array coins representing coins of different
+denominations and an integer amount representing a total amount of money.
+
+Return the fewest number of coins that you need to make up that amount.
+If that amount cannot be made up by any combination, return -1.
+
+Example 1:
+  Input: coins = [1,2,5], amount = 11
+  Output: 3
+  Explanation: 11 = 5 + 5 + 1"></textarea>
+
+  <label for="mins">Time limit (minutes)</label>
+  <input id="mins" name="minutes" type="number" value="30" min="5" max="120">
+
+  <button id="begin" class="primary" type="submit">Start interview</button>
+  <p class="keys">In the interview, hold <kbd>Alt</kbd> to speak or press
+    <kbd>Ctrl</kbd>+<kbd>Space</kbd> to latch the mic open.</p>
+</form>
+
+<script>
+const $ = s => document.querySelector(s);
+
+// Screenshots normally live on the clipboard, so paste is the main path; the
+// picker and drop zone cover the times it doesn't.
+async function readShot(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const drop = $('#drop');
+  drop.className = 'busy';
+  drop.textContent = 'Reading the problem from your screenshot…';
+  $('#begin').disabled = true;
+  const body = new FormData();
+  body.append('image', file, file.name || 'shot.png');
+  try {
+    const r = await fetch('/read-problem', { method: 'POST', body });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const { problem } = await r.json();
+    $('#ptext').value = problem;
+    drop.className = '';
+    drop.textContent = 'Read it — check the text below, then start.';
+  } catch (e) {
+    drop.className = 'bad';
+    drop.textContent = 'Could not read that image: ' + e.message;
+  }
+  $('#begin').disabled = false;
+}
+
+$('#shot').onchange = e => readShot(e.target.files[0]);
+
+// Pasting a whole problem page brings navigation, tags, and a discussion
+// thread that often names the algorithm outright. Clean it before it can be
+// read as part of the problem.
+let beforeTidy = null;
+
+async function tidy(auto) {
+  const raw = $('#ptext').value.trim();
+  if (!raw) return;
+  const drop = $('#drop');
+  beforeTidy = raw;
+  drop.className = 'busy';
+  drop.textContent = 'Cleaning up the pasted text…';
+  $('#begin').disabled = $('#tidy').disabled = true;
+  try {
+    const body = new FormData();
+    body.append('problem', raw);
+    const res = await fetch('/tidy-problem', { method: 'POST', body });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const r = await res.json();
+    $('#ptext').value = r.problem;
+    drop.className = '';
+    drop.replaceChildren();
+    if (r.changed) {
+      drop.append(`Cleaned up — ${raw.length} characters down to ${r.problem.length}. `);
+      const undo = document.createElement('a');
+      undo.href = '#'; undo.textContent = 'Undo';
+      undo.onclick = e => {
+        e.preventDefault();
+        $('#ptext').value = beforeTidy;
+        drop.textContent = 'Restored what you pasted.';
+      };
+      drop.append(undo);
+    } else {
+      drop.textContent = r.note || 'Nothing to clean — looks like just the problem.';
+    }
+  } catch (e) {
+    drop.className = 'bad';
+    drop.textContent = 'Could not clean that up: ' + e.message +
+      (auto ? ' — your text is unchanged.' : '');
+  }
+  $('#begin').disabled = $('#tidy').disabled = false;
+}
+
+$('#tidy').onclick = () => tidy(false);
+
+// Fire on a paste big enough to be a page rather than a sentence, once the
+// value has actually landed in the textarea.
+$('#ptext').addEventListener('paste', e => {
+  const text = e.clipboardData.getData('text') || '';
+  if (text.length < 400) return;
+  setTimeout(() => tidy(true), 0);
+});
+
+addEventListener('paste', e => {
+  const item = [...e.clipboardData.items].find(i => i.type.startsWith('image/'));
+  if (item) { e.preventDefault(); readShot(item.getAsFile()); }
+});
+
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => {
+  e.preventDefault(); drop.classList.add('over');
+}));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => {
+  e.preventDefault(); drop.classList.remove('over');
+}));
+drop.addEventListener('drop', e => readShot(e.dataTransfer.files[0]));
+
+$('#setup').onsubmit = async e => {
+  e.preventDefault();
+  const body = new FormData();
+  body.append('problem', $('#ptext').value.trim() || $('#ptext').placeholder);
+  body.append('minutes', $('#mins').value);
+  $('#begin').disabled = true;
+  $('#begin').textContent = 'Setting up…';
+  try {
+    const r = await fetch('/session', { method: 'POST', body });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const { session } = await r.json();
+    location.href = '/interview?s=' + session;
+  } catch (err) {
+    $('#begin').disabled = false;
+    $('#begin').textContent = 'Start interview';
+    drop.className = 'bad';
+    drop.textContent = 'Could not start: ' + err.message;
+  }
+};
+</script>

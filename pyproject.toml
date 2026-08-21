@@ -1,0 +1,32 @@
+[project]
+name = "mock-interview-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "charitarthchugh", email = "37895518+charitarthchugh@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "av>=18.1.0",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "kokoro>=0.9.4",
+    "numpy>=2.5.2",
+    "python-multipart>=0.0.32",
+    "soundfile>=0.14.0",
+    "uvicorn>=0.52.4",
+]
+
+# This is an application, not a library. Without this uv tries to build and
+# install it as a package, looking for a src/ layout that only ever held the
+# hello-world stub uv init left behind.
+[tool.uv]
+package = false
+
+# Only scripts/transcribe.py needs speech-to-text — the app itself hears audio
+# through the omni model. Kept out of the default install so the container
+# does not carry ctranslate2 and onnxruntime for a path that never runs.
+#   uv run --group corpus python scripts/transcribe.py corpus/audio corpus/transcripts
+[dependency-groups]
+corpus = ["faster-whisper>=1.2.1"]

@@ -1,0 +1,642 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Interview in progress</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  body { display:flex; flex-direction:column; overflow:hidden; }
+
+  header {
+    display:flex; gap:18px; align-items:center; padding:10px 16px;
+    border-bottom:1px solid var(--line); background:var(--panel); flex:none;
+  }
+  #clock { font-variant-numeric:tabular-nums; font-size:26px; font-weight:650;
+           letter-spacing:.5px; }
+  #clock.warn { color:var(--warn); } #clock.bad { color:var(--bad); }
+  .tag { color:var(--dim); font-size:13px; }
+  .tag b { color:var(--accent); font-weight:600; }
+  header .spacer { flex:1; }
+  header button, #sound {
+    background:transparent; border:1px solid var(--line); color:var(--dim);
+    padding:6px 10px; border-radius:8px; font-size:13px;
+  }
+  #sound { color:var(--warn); border-color:var(--warn); display:none; }
+  #end { color:var(--warn); border-color:var(--warn); }
+  #end:disabled { opacity:.5; cursor:default; }
+
+  main { flex:1; display:grid; grid-template-columns: 1fr 1fr;
+         min-height:0; overflow:hidden; }
+  .pane { display:flex; flex-direction:column; min-height:0; min-width:0; }
+  .pane + .pane { border-left:1px solid var(--line); }
+  .pane h2 {
+    margin:0; padding:9px 16px; font-size:11px; font-weight:700;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--dim);
+    border-bottom:1px solid var(--line); background:var(--panel); flex:none;
+  }
+
+  /* Shrink to the problem when it is short, cap it when it is long, and give
+     the rest to the conversation as it grows. */
+  #problem { padding:16px 18px 18px; overflow-y:auto;
+             flex:0 1 auto; max-height:62%; border-bottom:1px solid var(--line);
+             font-size:14px; line-height:1.62; }
+
+  /* Prose reads in the body face; only the parts that are literally code or
+     numbers go monospace, which is what makes them findable at a glance. */
+  #problem h1 { margin:0 0 6px; font-size:16px; font-weight:650;
+                letter-spacing:-.01em; }
+  #problem h3 { margin:0 0 6px; font-size:10.5px; font-weight:700;
+                letter-spacing:.09em; text-transform:uppercase; color:var(--dim); }
+  #problem .p { margin:0 0 11px; white-space:pre-wrap; }
+  #problem .p:last-child { margin-bottom:0; }
+  #problem .chip {
+    display:inline-block; margin:0 0 12px; padding:1px 8px; border-radius:999px;
+    font-size:10.5px; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; background:var(--panel); color:var(--dim);
+    border:1px solid var(--line);
+  }
+  #problem .chip.easy { color:#4ec9a0; } #problem .chip.medium { color:var(--warn); }
+  #problem .chip.hard { color:var(--bad); }
+
+  #problem .ex, #problem .cons {
+    margin:0 0 12px; padding:10px 12px; border-radius:9px;
+    background:var(--panel); border:1px solid var(--line);
+  }
+  #problem .ex-body, #problem .cons ul, #problem .raw {
+    font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  #problem .field { display:flex; gap:8px; padding:1px 0; }
+  /* A fixed column keeps the values aligned; min-width rather than width so a
+     long label (explanation) pushes its value across instead of running into it. */
+  #problem .label {
+    flex:0 0 auto; min-width:74px; color:var(--dim); text-transform:lowercase;
+  }
+  #problem .value { white-space:pre-wrap; word-break:break-word; min-width:0; }
+  #problem .raw { margin:4px 0 0; white-space:pre-wrap; }
+  #problem .cons ul { margin:0; padding-left:16px; }
+  #problem .cons li { margin:1px 0; }
+  #problem .note {
+    margin:0 0 11px; padding-left:10px; border-left:2px solid var(--line);
+    color:var(--dim); white-space:pre-wrap;
+  }
+  #log { min-height:22%; }
+  #log { flex:1; overflow-y:auto; padding:14px 16px;
+         display:flex; flex-direction:column; gap:10px; min-height:0; }
+  .msg { max-width:92%; padding:9px 13px; border-radius:13px;
+         white-space:pre-wrap; font-size:14px; }
+  .coach { background:#1b2030; align-self:flex-start;
+           border-left:2px solid var(--accent); }
+  .me { background:#26344a; align-self:flex-end; }
+  .sys { color:var(--dim); font-size:13px; align-self:center; text-align:center; }
+
+  /* The right column is one surface with three faces. The bar never moves and
+     never hides, so switching costs one glance and one click. */
+  #tabs { display:flex; gap:2px; padding:0 8px; flex:none;
+          border-bottom:1px solid var(--line); background:var(--panel); }
+  #tabs button {
+    background:transparent; border:0; border-bottom:2px solid transparent;
+    color:var(--dim); padding:10px 14px; font-size:11px; font-weight:700;
+    letter-spacing:.09em; text-transform:uppercase;
+  }
+  #tabs button[aria-selected="true"] { color:var(--fg);
+                                       border-bottom-color:var(--accent); }
+  #tabs .dot { display:none; margin-left:6px; width:7px; height:7px;
+               border-radius:50%; background:var(--accent);
+               vertical-align:middle; }
+  #tabs .dot.on { display:inline-block; }
+  #tabs .dot.fail { background:var(--bad); }
+  #tabs .grow { flex:1; }
+  #tabs .note { color:var(--dim); font-size:11px; align-self:center;
+                padding-right:8px; }
+
+  .panel { flex:1; min-height:0; display:none; flex-direction:column; }
+  .panel.on { display:flex; }
+
+  #pad { flex:1; width:100%; resize:none; border:0; outline:0; padding:16px;
+         background:var(--bg); color:var(--fg); min-height:0; tab-size:2;
+         font:14px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  #padstate { font-weight:400; text-transform:none; letter-spacing:0;
+              color:var(--dim); float:right; font-size:11px; }
+
+  #testhead { display:flex; gap:10px; align-items:center; padding:8px 16px;
+              border-bottom:1px solid var(--line); background:var(--panel);
+              flex:none; font-size:12px; color:var(--dim); }
+  #testhead button { background:transparent; border:1px solid var(--accent);
+                     color:var(--accent); padding:4px 12px; border-radius:8px;
+                     font-size:12px; font-weight:600; }
+  #testhead button:disabled { opacity:.4; cursor:default;
+                              border-color:var(--line); color:var(--dim); }
+  #cases { flex:1; overflow-y:auto; padding:10px 16px; min-height:0;
+           font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .case { border-left:2px solid var(--line); padding:5px 0 5px 10px;
+          margin-bottom:8px; white-space:pre-wrap; word-break:break-word; }
+  .case.pass { border-left-color:var(--accent); }
+  .case.fail { border-left-color:var(--bad); }
+  .case .k { color:var(--dim); }
+  .case .bad { color:var(--bad); }
+
+  footer { padding:11px 16px; border-top:1px solid var(--line);
+           background:var(--panel); display:flex; gap:14px; align-items:center;
+           flex:none; }
+  #talk { font-size:16px; font-weight:650; padding:11px 26px; border-radius:11px;
+          border:0; background:var(--accent); color:#04121c;
+          touch-action:none; user-select:none; min-width:230px; }
+  #talk.rec { background:var(--bad); color:#fff; }
+  #talk:disabled { opacity:.45; cursor:default; }
+  .hint { color:var(--dim); font-size:13px; }
+
+  .dim-note { color:var(--dim); font-size:12px; }
+  /* The recap is the end of the session, so it takes the screen rather than
+     competing with a clock that has already run out. */
+  #verdict { position:fixed; inset:0; background:rgba(8,10,14,.86);
+             display:none; align-items:center; justify-content:center;
+             padding:24px; z-index:10; }
+  #verdict.on { display:flex; }
+  #card { background:var(--panel); border:1px solid var(--line);
+          border-radius:14px; padding:22px 24px; max-width:720px; width:100%;
+          max-height:100%; overflow-y:auto; }
+  #card h3 { margin:0 0 4px; font-size:20px; }
+  #band { color:var(--accent); font-weight:650; }
+  .dim { display:grid; grid-template-columns:130px 34px 1fr; gap:8px;
+         padding:7px 0; border-top:1px solid var(--line); font-size:13px;
+         align-items:baseline; }
+  .dim .n { color:var(--dim); text-transform:capitalize; }
+  .dim .s { font-weight:650; font-variant-numeric:tabular-nums; }
+  .dim .q { color:var(--dim); }
+  .fb { margin:14px 0 0; font-size:14.5px; line-height:1.6; }
+  .fb b { color:var(--accent); font-weight:600; }
+
+  @media (max-width: 820px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    .pane + .pane { border-left:0; border-top:1px solid var(--line); }
+    #problem { max-height:42%; }
+    #talk { min-width:0; flex:1; }
+    .hint { display:none; }
+    #tabs button { padding:10px 9px; letter-spacing:.04em; }
+  }
+</style>
+
+<header>
+  <span id="clock">--:--</span>
+  <span class="tag">Phase <b id="phase">—</b></span>
+  <span class="spacer"></span>
+  <button id="sound">🔇 Tap to enable sound</button>
+  <button id="mute">🔊 Voice on</button>
+  <button id="end">End interview</button>
+</header>
+
+<main>
+  <section class="pane">
+    <h2>Problem</h2>
+    <div id="problem"></div>
+    <h2>Interviewer</h2>
+    <div id="log"></div>
+  </section>
+
+  <section class="pane">
+    <div id="tabs" role="tablist">
+      <button id="tab-pad" role="tab" aria-selected="true">Scratchpad</button>
+      <button id="tab-code" role="tab" aria-selected="false">Code</button>
+      <button id="tab-tests" role="tab" aria-selected="false">Tests
+        <span id="dot" class="dot"></span></button>
+      <span class="grow"></span>
+      <span class="note" id="padstate">saved</span>
+    </div>
+
+    <div class="panel on" id="panel-pad">
+      <textarea id="pad" spellcheck="false"></textarea>
+    </div>
+
+    <div class="panel" id="panel-code"></div>
+
+    <div class="panel" id="panel-tests">
+      <div id="testhead">
+        <button id="runtests" disabled>Run tests</button>
+        <span id="teststate">Generating tests…</span>
+      </div>
+      <div id="cases"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <button id="talk">Hold to talk</button>
+  <span class="hint">
+    Hold <kbd>Alt</kbd> to speak &nbsp;·&nbsp;
+    <kbd>Ctrl</kbd>+<kbd>Space</kbd> to latch the mic open
+  </span>
+</footer>
+
+<div id="verdict"><div id="card"></div></div>
+
+<script type="module">
+import { initEditor } from '/static/editor.js';
+import { showProblem } from '/static/problem.js';
+
+const $ = s => document.querySelector(s);
+const sessionId = new URLSearchParams(location.search).get('s');
+let recorder = null, chunks = [], remaining = 0, running = false;
+let speak = true, player = null, latched = false, savedPad = null, pending = null;
+let recStart = 0, savedCode = '', suite = null, ended = false, ending = false;
+const MIN_MS = 400;  // matches the server's floor, but saves the round trip
+
+// Mounted at boot, not on first click: initEditor starts Pyodide immediately
+// and the 1.4s of boot is free while the candidate is still reading.
+const editor = initEditor({
+  mount: $('#panel-code'),
+  starterCode: '',
+  onChange: () => {},
+});
+
+function add(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls; d.textContent = text;
+  $('#log').append(d); $('#log').scrollTop = $('#log').scrollHeight;
+}
+
+function hush() {
+  if (player) { player.pause(); player = null; }
+  speechSynthesis.cancel();
+}
+
+// Kokoro renders the voice on the Spark. speechSynthesis is only reached for
+// when TTS is switched off server-side.
+function say(text, wav) {
+  if (!speak || !text) return;
+  hush();
+  if (!wav) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    speechSynthesis.speak(u);
+    return;
+  }
+  player = new Audio('data:audio/wav;base64,' + wav);
+  // Arriving from another page costs the gesture that lets audio autoplay, so
+  // offer the click back rather than letting the first turn play silently.
+  player.play().catch(() => {
+    pending = player;
+    $('#sound').style.display = 'inline-block';
+  });
+}
+
+$('#sound').onclick = () => {
+  $('#sound').style.display = 'none';
+  if (pending) { pending.play().catch(() => {}); pending = null; }
+};
+
+// ------------------------------------------------------------------ tabs
+
+const TABS = ['pad', 'code', 'tests'];
+function show(name) {
+  for (const t of TABS) {
+    $('#tab-' + t).setAttribute('aria-selected', String(t === name));
+    $('#panel-' + t).classList.toggle('on', t === name);
+  }
+  if (name === 'tests') $('#dot').classList.remove('on');
+  if (name === 'code') editor.focus();
+  if (name === 'pad') $('#pad').focus();
+}
+for (const t of TABS) $('#tab-' + t).onclick = () => show(t);
+
+function render(s) {
+  remaining = s.remaining;
+  $('#phase').textContent = s.phase;
+  tick();
+}
+
+function tick() {
+  const m = Math.floor(remaining / 60), sec = remaining % 60;
+  const c = $('#clock');
+  c.textContent = `${m}:${String(sec).padStart(2, '0')}`;
+  c.className = remaining < 120 ? 'bad' : remaining < 300 ? 'warn' : '';
+}
+setInterval(() => {
+  if (!running || remaining <= 0) return;
+  remaining--; tick();
+  // The recap fires itself at zero: the point of the clock is that it ends.
+  if (remaining === 0) finish();
+}, 1000);
+
+async function boot() {
+  if (!sessionId) { location.replace('/'); return; }
+  const r = await fetch('/session/' + sessionId);
+  if (!r.ok) { location.replace('/'); return; }
+  const s = await r.json();
+  showProblem($('#problem'), s.problem);
+  $('#pad').value = savedPad = s.scratchpad;
+  if (s.code) editor.setCode(savedCode = s.code);
+  pollTests();
+
+  await initMic();
+  $('#pad').focus();
+
+  // A refresh mid-interview must not lose the conversation or the clock: the
+  // server owns both, so pick them back up rather than starting over.
+  if (s.started) {
+    for (const t of s.transcript) add(t.who, t.text);
+    render(s);
+    running = true;
+    // A refresh after the end should still be able to show the score: the
+    // the recap is arithmetic over the log, so asking again is free.
+    if (s.ended) {
+      ended = true;
+      $('#talk').disabled = true;
+      $('#end').textContent = 'Show recap';
+      $('#end').onclick = async () => {
+        const res = await fetch(`/session/${sessionId}/end`, {
+          method: 'POST', body: new FormData(),
+        });
+        const r = await res.json();
+        drawRecap(r.recap);
+      };
+    }
+    return;
+  }
+
+  remaining = s.minutes * 60; tick();
+  const b = await fetch('/session/' + sessionId + '/begin', { method: 'POST' });
+  if (!b.ok) { add('sys', 'Could not start this interview.'); return; }
+  const opening = await b.json();
+  running = true;
+  add('coach', opening.reply); say(opening.reply, opening.audio); render(opening);
+}
+
+async function initMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = send;
+  } catch (e) {
+    add('sys', 'Microphone blocked: ' + e.message +
+      ' — this page must be served over HTTPS or localhost.');
+  }
+}
+
+// A transient line for turns that were never sent, so the log stays a record
+// of the interview rather than of the button.
+function flash(text) {
+  const d = document.createElement('div');
+  d.className = 'msg sys'; d.textContent = text;
+  $('#log').append(d); $('#log').scrollTop = $('#log').scrollHeight;
+  setTimeout(() => d.remove(), 3500);
+}
+
+async function send() {
+  const held = Date.now() - recStart;
+  const blob = new Blob(chunks, { type: recorder.mimeType }); chunks = [];
+  if (held < MIN_MS || blob.size < 1024) { flash('Nothing recorded.'); return; }
+  $('#talk').disabled = true; $('#talk').textContent = 'Thinking…';
+  const body = new FormData();
+  body.append('session_id', sessionId);
+  body.append('audio', blob, 'turn.webm');
+  body.append('scratchpad', $('#pad').value);
+  body.append('code', editor.getCode());
+  savedPad = $('#pad').value; savedCode = editor.getCode();
+  try {
+    const res = await fetch('/turn', { method: 'POST', body });
+    // An error response is HTML, not JSON, and parsing it blindly reported a
+    // syntax error instead of what actually went wrong.
+    if (!res.ok) throw new Error(`the server returned ${res.status}. ` +
+      `Your turn was not lost — try speaking again.`);
+    const r = await res.json();
+    render(r);
+    if (r.dropped) {
+      if (r.transcript) add('me', r.transcript);
+      flash(r.dropped + ' — try again.');
+      return;
+    }
+    add('me', r.transcript || '🎤 (spoken)');
+    if (r.reply) { add('coach', r.reply); say(r.reply, r.audio); }
+  } catch (e) { add('sys', 'Could not send that turn: ' + e.message); }
+  // `ending` matters as well as `ended`: a turn released as the clock hit zero
+  // would otherwise hand the button back in the middle of scoring.
+  if (!ended && !ending) { $('#talk').disabled = false; }
+  $('#talk').textContent = 'Hold to talk';
+}
+
+function startRec() {
+  if (!recorder || recorder.state === 'recording' || ended) return;
+  hush();
+  chunks = []; recStart = Date.now(); recorder.start();
+  $('#talk').classList.add('rec');
+  $('#talk').textContent = latched ? 'Listening… ⌃Space to send'
+                                   : 'Listening… release to send';
+}
+function stopRec() {
+  if (!recorder || recorder.state !== 'recording') return;
+  recorder.stop();
+  $('#talk').classList.remove('rec');
+  latched = false;
+}
+
+$('#talk').addEventListener('pointerdown', e => { e.preventDefault(); startRec(); });
+$('#talk').addEventListener('pointerup', e => { e.preventDefault(); stopRec(); });
+$('#talk').addEventListener('pointercancel', stopRec);
+
+// Two hotkeys, because both hands are in the scratchpad: hold Alt to talk, or
+// Ctrl+Space to latch the mic open.
+addEventListener('keydown', e => {
+  if (!running) return;
+  if (e.code === 'Space' && e.ctrlKey) {
+    e.preventDefault();
+    if (recorder && recorder.state === 'recording') stopRec();
+    else { latched = true; startRec(); }
+    return;
+  }
+  if (e.key === 'Alt' && !e.repeat && !latched) { e.preventDefault(); startRec(); }
+});
+addEventListener('keyup', e => {
+  if (e.key === 'Alt' && !latched) { e.preventDefault(); stopRec(); }
+});
+// Releasing Alt outside the window would otherwise leave the mic open.
+addEventListener('blur', () => { if (!latched) stopRec(); });
+
+// Autosave both surfaces, so the finished pad and the last code survive even
+// if the closing notes were never spoken.
+setInterval(async () => {
+  if (!running || ended) return;
+  if ($('#pad').value !== savedPad) {
+    const body = new FormData();
+    body.append('session_id', sessionId);
+    body.append('scratchpad', $('#pad').value);
+    savedPad = $('#pad').value;
+    $('#padstate').textContent = 'saving…';
+    try { await fetch('/scratchpad', { method: 'POST', body }); } catch {}
+    $('#padstate').textContent = 'saved';
+  }
+  if (editor.getCode() !== savedCode) {
+    const body = new FormData();
+    body.append('code', savedCode = editor.getCode());
+    try {
+      await fetch(`/session/${sessionId}/code`, { method: 'POST', body });
+    } catch {}
+  }
+}, 4000);
+
+$('#mute').onclick = () => {
+  speak = !speak;
+  $('#mute').textContent = speak ? '🔊 Voice on' : '🔇 Voice off';
+  if (!speak) hush();
+};
+
+// ------------------------------------------------------------------ tests
+
+async function pollTests() {
+  for (let i = 0; i < 60 && !suite; i++) {
+    try {
+      const r = await fetch(`/session/${sessionId}/tests`);
+      const j = await r.json();
+      // A suite with nothing runnable in it is the same news as no suite at
+      // all: generation ran, and this problem is not one it could read.
+      const cases = j.suite
+        ? j.suite.examples.length + j.suite.hidden.length : 0;
+      if (j.suite && cases) { suite = j.suite; break; }
+      if (j.ready) {
+        $('#teststate').textContent =
+          'No generated tests for this problem — the Code tab still runs.';
+        return;
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  if (!suite) { $('#teststate').textContent = 'Test generation timed out.'; return; }
+
+  const total = suite.examples.length + suite.hidden.length;
+  $('#teststate').textContent = suite.hidden.length
+    ? `${total} cases ready (${suite.examples.length} from the statement).`
+    : `${total} case${total === 1 ? '' : 's'} from the statement. ${suite.reason || ''}`;
+  $('#runtests').disabled = false;
+  if (suite.stub && !editor.getCode().trim()) {
+    editor.setCode(suite.stub);
+    savedCode = suite.stub;   // ours, so it must not be logged as theirs
+  }
+  $('#dot').classList.add('on');
+}
+
+// Generated inputs run to a hundred elements; the point of the line is which
+// case failed, not every element of it.
+function fmt(v, cap = 90) {
+  if (v === undefined) return '—';
+  const s = JSON.stringify(v);
+  return s.length > cap ? s.slice(0, cap) + '…' : s;
+}
+
+function drawCases(r) {
+  const box = $('#cases');
+  box.textContent = '';
+  // Failures first: the one thing a candidate needs is the case that broke.
+  const ordered = [...r.cases].sort((a, b) => a.passed - b.passed);
+  for (const c of ordered) {
+    const d = document.createElement('div');
+    d.className = 'case ' + (c.passed ? 'pass' : 'fail');
+    const args = Object.entries(c.inputs)
+      .map(([k, v]) => `${k}=${fmt(v)}`).join(', ');
+    const got = c.error
+      ? `<span class="bad">${c.error}</span>`
+      : fmt(c.got);
+    d.innerHTML =
+      `<span class="k">${c.passed ? 'pass' : 'FAIL'} · ${c.source}</span> ` +
+      `${suite.entry}(${args})\n` +
+      `<span class="k">expected</span> ${fmt(c.expected)}  ` +
+      `<span class="k">got</span> ${got}`;
+    box.append(d);
+  }
+}
+
+$('#runtests').onclick = async () => {
+  $('#runtests').disabled = true;
+  $('#teststate').textContent = 'Running…';
+  const body = new FormData();
+  body.append('code', savedCode = editor.getCode());
+  try {
+    const res = await fetch(`/session/${sessionId}/run`, { method: 'POST', body });
+    const r = await res.json();
+    if (!r.ok) { $('#teststate').textContent = 'Could not run: ' + r.error; }
+    else {
+      $('#teststate').textContent = `${r.passed} of ${r.total} passed`;
+      drawCases(r);
+      // The badge is how a candidate deep in the editor learns the result
+      // changed without watching a second panel.
+      const dot = $('#dot');
+      dot.classList.add('on');
+      dot.classList.toggle('fail', r.passed < r.total);
+      if ($('#panel-tests').classList.contains('on')) dot.classList.remove('on');
+    }
+  } catch (e) {
+    $('#teststate').textContent = 'Could not run: ' + e.message;
+  }
+  $('#runtests').disabled = false;
+};
+
+// ------------------------------------------------------------------- recap
+
+function drawRecap(r) {
+  const card = $('#card');
+  card.replaceChildren();
+  const h = document.createElement('h3');
+  h.textContent = 'What happened';
+  card.append(h);
+  // textContent throughout: a "<" anywhere in these strings would silently
+  // swallow the rest of the line.
+  for (const text of r.lines) {
+    const p = document.createElement('p');
+    p.className = 'fb'; p.textContent = text;
+    card.append(p);
+  }
+  const note = document.createElement('p');
+  note.className = 'fb dim-note';
+  note.textContent = 'No score. These are counts from the session, not a ' +
+    'judgement of how well you reasoned.';
+  card.append(note);
+  const wrap = document.createElement('p');
+  wrap.className = 'fb';
+  const close = document.createElement('button');
+  close.id = 'close'; close.className = 'primary'; close.textContent = 'Close';
+  close.onclick = () => $('#verdict').classList.remove('on');
+  wrap.append(close); card.append(wrap);
+  $('#verdict').classList.add('on');
+}
+
+async function finish() {
+  if (ending || ended) return;
+  ending = true;
+  running = false;
+  stopRec();
+  hush();
+  $('#end').disabled = true;
+  $('#end').textContent = 'Ending…';
+  $('#talk').disabled = true;
+  add('sys', 'Interview over.');
+  const body = new FormData();
+  body.append('session_id', sessionId);
+  body.append('scratchpad', $('#pad').value);
+  body.append('code', editor.getCode());
+  try {
+    const res = await fetch(`/session/${sessionId}/end`, { method: 'POST', body });
+    if (!res.ok) throw new Error('the server returned ' + res.status);
+    const r = await res.json();
+    ended = true;
+    drawRecap(r.recap);
+    say(r.speech, r.audio);
+    $('#end').textContent = 'Show recap';
+    $('#end').disabled = false;
+    $('#end').onclick = () => $('#verdict').classList.add('on');
+  } catch (e) {
+    // Put the interview back the way it was; scoring failing must not end it.
+    add('sys', 'Could not build the recap: ' + e.message + ' — still running.');
+    running = true;
+    $('#talk').disabled = false;
+    $('#end').textContent = 'End interview';
+    $('#end').disabled = false;
+  }
+  ending = false;
+}
+
+$('#end').onclick = () => {
+  if (confirm('End the interview now and score it?')) finish();
+};
+
+boot();
+</script>

@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Editor harness</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  body { display:grid; grid-template-columns: 1fr 1fr; height:100vh; overflow:hidden; }
+  #mount { min-width:0; border-right:1px solid var(--line); }
+  #side { display:flex; flex-direction:column; min-height:0; }
+  #side h2 { margin:0; padding:9px 16px; font-size:11px; font-weight:700;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--dim);
+    border-bottom:1px solid var(--line); background:var(--panel); }
+  #side .bar { padding:10px 16px; border-bottom:1px solid var(--line); }
+  #side button { background:transparent; border:1px solid var(--accent);
+    color:var(--accent); padding:6px 14px; border-radius:8px; font-size:13px; }
+  #report { flex:1; overflow:auto; margin:0; padding:14px 16px; white-space:pre-wrap;
+    font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--fg); }
+  a { color:var(--accent); }
+</style>
+
+<div id="mount"></div>
+<div id="side">
+  <h2>Harness</h2>
+  <div class="bar">
+    <button id="go">Run checks</button>
+    <span class="hint" style="color:var(--dim);font-size:12px">
+      &nbsp;Tab indents · Ctrl+M then Tab leaves the editor
+    </span>
+  </div>
+  <pre id="report">Booting Pyodide…</pre>
+</div>
+
+<script type="module">
+import { initEditor } from "/static/editor.js";
+
+const T0 = performance.now();
+let bootWall = null;
+const report = document.getElementById("report");
+const say = (s) => { report.textContent += s + "\n"; };
+
+// 3s rather than the 10s default so a runaway check does not stall the page.
+const ed = initEditor({
+  mount: document.getElementById("mount"),
+  timeoutMs: 3000,
+  onStatus: (state) => { if (state === "idle" && bootWall === null) bootWall = Math.round(performance.now() - T0); },
+  starterCode: 'def two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n\nprint(two_sum([2, 7, 11, 15], 9))\n',
+});
+window.ed = ed;
+
+const idle = () => new Promise((r) => {
+  const t = setInterval(() => { if (ed.state === "idle") { clearInterval(t); r(); } }, 10);
+});
+
+idle().then(() => {
+  say(`ready: worker boot ${ed.bootMs} ms, wall ${bootWall} ms`);
+});
+
+async function checks() {
+  const out = { boot_worker_ms: ed.bootMs, boot_wall_ms: bootWall, checks: [] };
+  const step = async (name, code, expect) => {
+    ed.setCode(code);
+    const t = performance.now();
+    const r = await ed.run();
+    const back = performance.now();
+    await idle();
+    const row = {
+      name, status: r.status, ms: r.ms,
+      wall_ms: Math.round(back - t),
+      usable_after_ms: Math.round(performance.now() - t),
+      stdout: r.stdout, stderr: r.stderr, value: r.value,
+      pass: expect(r),
+    };
+    out.checks.push(row);
+    say(JSON.stringify(row, null, 1));
+    return row;
+  };
+
+  await step("hello world", 'print("hello world")\n1 + 1',
+    (r) => r.ok && r.stdout === "hello world" && r.value === "2");
+  await step("fresh namespace", 'x = 5', (r) => r.ok);
+  await step("fresh namespace 2", 'print("x" in dir())', (r) => r.stdout === "False");
+  await step("traceback", 'def g(a):\n    return a[9]\nprint("before")\ng([1, 2])',
+    (r) => r.status === "error" && r.stderr.includes('File "your code"')
+           && r.stderr.includes("IndexError") && !r.stderr.includes("_pyodide"));
+  await step("stderr write", 'import sys\nsys.stderr.write("to stderr\\n")',
+    (r) => r.stderr.includes("to stderr"));
+  await step("pure-python runaway", 'while True:\n    pass', (r) => r.status === "timeout");
+  await step("c-level runaway", 'print(sum(range(10 ** 11)))', (r) => r.status === "timeout");
+  window.__paneShowedKill = document.querySelector(".ed-out").textContent.includes("Killed after");
+  await step("alive after kill", 'print("still alive")',
+    (r) => r.ok && r.stdout === "still alive");
+
+  ed.setCode('def two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n');
+  const tests = await ed.runTests(['assert two_sum([2,7],9) == [0,1]', 'assert two_sum([1,2],9) == [0,1]']);
+  const row = { name: "runTests", statuses: tests.map((t) => t.status),
+                pass: tests[0].ok && tests[1].status === "error" };
+  out.checks.push(row); say(JSON.stringify(row));
+
+  out.checks.push({ name: "kill visible in pane", pass: window.__paneShowedKill });
+  say("kill visible in pane: " + window.__paneShowedKill);
+  out.pass = out.checks.every((c) => c.pass);
+  window.__result = out;
+  say(out.pass ? "ALL PASS" : "FAILURES");
+  return out;
+}
+window.__checks = checks;
+document.getElementById("go").onclick = () => { report.textContent = ""; checks(); };
+</script>
